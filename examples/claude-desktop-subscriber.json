@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "analytics-legends": {
+      "type": "streamable-http",
+      "url": "https://analyticslegends.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer alk_REPLACE_WITH_YOUR_KEY"
+      }
+    }
+  }
+}
