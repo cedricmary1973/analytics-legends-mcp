@@ -149,5 +149,6 @@ Published in the official MCP registry as **`ai.analyticslegends/sap-analytics`*
 
 ## Licence
 
-[MIT](./LICENSE) for the contents of this repository. The licence does not grant rights
-over the data served by the endpoint, which stays under the platform's terms.
+[MIT](./LICENSE) for the contents of this repository — see [NOTICE](./NOTICE.md) for
+the scope: the licence grants no right over the data served by the endpoint, which
+stays under the platform's own terms.
