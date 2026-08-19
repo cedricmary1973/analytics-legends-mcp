@@ -3,11 +3,11 @@
   "name": "analytics-legends",
   "registry_name": "ai.analyticslegends/sap-analytics",
   "title": "Analytics Legends — SAP Analytics intelligence (read-only)",
-  "description": "Local Analytics Legends MCP descriptor. A public streamable-http transport is live at https://analyticslegends.ai/mcp; local stdio also exposes the same tools over a repository snapshot. Snapshot the local stdio transport reads: 9,103 consulting/headhunter firm cards, 19,090 SAP-client profiles, 2381 live opportunities, 3,555 news items, 303 academy modules, 317 concepts, 38 study files, and 40,209/366,564 graph nodes/edges. These are NOT the hosted tools' populations: the hosted endpoint counts Postgres at query time and returns each tool's own population on every response as `_meta.tranche_total_row_count` — quote that. It can be much wider (search_firms serves the whole published organisation tranche, not the firm cards counted here) or much narrower (list_sap_modules serves the SAP module lookup, not the academy modules counted here).",
+  "description": "Local Analytics Legends MCP descriptor. A public streamable-http transport is live at https://analyticslegends.ai/mcp; local stdio also exposes the same tools over a repository snapshot. Snapshot the local stdio transport reads: 9,103 consulting/headhunter firm cards, 19,090 SAP-client profiles, 1864 live opportunities, 3,774 news items, 324 academy modules, 328 concepts, 42 study files, and 57,803/487,122 graph nodes/edges. These are NOT the hosted tools' populations: the hosted endpoint counts Postgres at query time and returns each tool's own population on every response as `_meta.tranche_total_row_count` — quote that. It can be much wider (search_firms serves the whole published organisation tranche, not the firm cards counted here) or much narrower (list_sap_modules serves the SAP module lookup, not the academy modules counted here).",
   "vendor": "Analytics Legends",
-  "version": "1.80.0",
+  "version": "1.83.0",
   "read_only": true,
-  "status": "LIVE — the public streamable-HTTP endpoint answers at https://analyticslegends.ai/mcp: 11 of its 16 tools are unauthenticated; the other 5 need a subscriber API key (each carries its floor in capabilities.tools[].requires — see access.authenticated). read-only, attribution required. Local stdio remains available for a checked-out repository. scripts/verify-mcp-endpoint-live.mjs re-probes this URL and fails the build if it stops answering.",
+  "status": "LIVE — the public streamable-HTTP endpoint answers at https://analyticslegends.ai/mcp: 14 of its 20 tools are unauthenticated; the other 6 need a subscriber API key (each carries its floor in capabilities.tools[].requires — see access.authenticated). read-only, attribution required. Local stdio remains available for a checked-out repository. scripts/verify-mcp-endpoint-live.mjs re-probes this URL and fails the build if it stops answering.",
   "access": {
     "price": "free",
     "auth": "none",
@@ -30,8 +30,56 @@
         "get_sap_client_profile",
         "get_firm_intel"
       ],
-      "quota": "daily per tier (billing.tier_feature_quotas 'api_queries_per_day'); anonymous public calls are not metered",
+      "quota": "daily per ACCOUNT, all keys of one account sharing it — the numbers are in access.limits.per_key, and every answer served to a key carries its own position in _meta.quota. Unauthenticated calls are NOT metered per caller; the endpoint holds a shared daily budget for them instead (access.limits.free_lane), and a subscriber key is never shed.",
       "never_served": "individual professionals and person-shaped fields (contacts, founders, leadership, recruiters, postal addresses) — at any tier"
+    },
+    "limits": {
+      "rate": {
+        "scope": "per client IP, enforced at the edge before this function runs",
+        "burst": "20 requests / 10 seconds",
+        "sustained": "60 requests / minute",
+        "endpoint_wide": "300 requests / minute",
+        "on_refusal": "HTTP 429 with a `Retry-After` header carrying the seconds to wait.",
+        "source": "infra/cloudflare/wrangler.toml"
+      },
+      "free_lane": {
+        "scope": "ENDPOINT-WIDE per day — NOT a per-caller cap",
+        "metered_per_caller": false,
+        "daily_budget": 60000,
+        "behaviour": "Unauthenticated calls are not counted against any individual. The endpoint holds a shared daily budget for them; once a day's budget is spent, anonymous `tools/call` is shed with an explicit refusal until midnight UTC. Discovery (`initialize`, `tools/list`, `resources/read`) is never shed, and a subscriber key is never shed.",
+        "why_not_per_ip": "Assistant connectors egress from shared IPs, so a per-IP DAILY cap would lock out every user of a provider for a day because of one. The per-minute rate limit above is per IP precisely because it clears itself in sixty seconds."
+      },
+      "per_key": {
+        "scope": "per ACCOUNT, per day, resetting at midnight UTC — every key of the same account shares one counter, so minting a second key does not reset it",
+        "unit": "calls to `tools/call`; `initialize`, `tools/list` and `ping` are never counted",
+        "covers": "public tools too — presenting a key meters the call, so a key whose day is spent is refused on the public tools as well. Calling with no key serves the public tranche and counts nothing.",
+        "daily_limit": {
+          "free": 1000,
+          "consultant": 2000,
+          "legend": 10000,
+          "mcp": 10000,
+          "firm": 50000
+        },
+        "read_your_own": "`_meta.quota` on every answer served to a key.",
+        "source": "billing.tier_feature_quotas (feature_key = 'api_queries_per_day')"
+      },
+      "paid_taste": {
+        "scope": "per ACCOUNT, per day, resetting at midnight UTC — every key of the same account shares one sample, so minting a second key does not grant a second taste",
+        "unit": "calls to tools ABOVE this key's tier floor — the paid tranche. Calls at or below the floor are not counted here at all.",
+        "daily_limit": {
+          "firm": 0,
+          "legend": 0,
+          "mcp": 0,
+          "consultant": 25,
+          "free": 25
+        },
+        "anonymous": 0,
+        "behaviour": "A free account may call the paid tools this many times a day; past it they refuse and name the MCP Pass. A tier that is already entitled to the whole paid tranche shows 0 because there is nothing to taste — it is not a restriction on them.",
+        "not_a_traversal_budget": "This is a SAMPLE, not a budget to walk the paid corpus with: paginating it costs far more calls than the taste holds, deliberately. A refusal here is not broken pagination.",
+        "upgrade": "https://analyticslegends.ai/pricing/",
+        "read_your_own": "`_meta.quota.paid_taste` on every paid answer served under the taste.",
+        "source": "billing.tier_feature_quotas (feature_key = 'mcp_paid_taste_per_day')"
+      }
     }
   },
   "transport": {
@@ -52,7 +100,7 @@
         "npm install && npm run build inside mcp-server/ (dist/ is gitignored)"
       ],
       "tool_count": 20,
-      "tools_note": "20 tools — a SUPERSET of the 16 served at transport.public, and under different names. The stdio build reads the checked-out working tree, so it can serve surfaces the hosted public tranche deliberately withholds. Do not call these names over HTTP.",
+      "tools_note": "20 tools — a SUPERSET of the 20 served at transport.public, and under different names. The stdio build reads the checked-out working tree, so it can serve surfaces the hosted public tranche deliberately withholds. Do not call these names over HTTP.",
       "tools": [
         {
           "name": "find_firms",
@@ -156,28 +204,28 @@
   },
   "server_info": {
     "name": "analytics-legends",
-    "implementation_version": "1.0.1"
+    "implementation_version": "1.0.6"
   },
-  "tool_count": 16,
+  "tool_count": 20,
   "capabilities": {
     "tools": [
       {
         "name": "search_firms",
         "title": "Search the SAP analytics firm directory",
         "read_only": true,
-        "description": "Search the published Analytics Legends directory of SAP analytics service providers — placement agencies, Big-4 and ESN practices, SAP vendors, platforms and community groups — by country, kind and free text. Returns name, HQ country/city, website, careers URL and a one-line editorial claim. SAP END-CUSTOMER companies are NOT in this directory: they are a separate paid dataset, excluded here by the `is_client` FLAG — not by the `client_enterprise` kind code. The two are different columns, and where a row's flag and its kind label disagree in the SSOT it is the flag that decides what this tool serves, so read the flag's meaning into the answer and not the label's. PAGINATED: the whole matched set is reachable — pass `_meta.next_cursor` back as `cursor` with the same filters until it is null. When `query` is set, rows are ordered by how well the NAME matches it (exact, then prefix, then substring), and rows matching only the description come last; without `query` the order is the directory's own quality ranking."
+        "description": "Search the published Analytics Legends directory of SAP analytics service providers — placement agencies, Big-4 and ESN practices, SAP vendors, platforms and community groups — by country, kind, declared SAP module and free text. Returns name, HQ country/city, website, careers URL and a one-line editorial claim. SAP END-CUSTOMER companies are NOT in this directory: they are a separate paid dataset, excluded here by the `is_client` FLAG — not by the `client_enterprise` kind code. The two are different columns, and where a row's flag and its kind label disagree in the SSOT it is the flag that decides what this tool serves, so read the flag's meaning into the answer and not the label's. PAGINATED: the whole matched set is reachable — pass `_meta.next_cursor` back as `cursor` with the same filters until it is null. When `query` is set, rows are ordered by how well the NAME matches it (exact, then prefix, then substring), and rows matching only the description come last; without `query` the order is the directory's own quality ranking."
       },
       {
         "name": "count_firms_by",
-        "title": "Count the firm directory by country, kind or SAP signal",
+        "title": "Count the firm directory by country, kind, module or SAP signal",
         "read_only": true,
-        "description": "Answer a COUNTING question about the published firm directory in one call: how many organisations per country, per kind, or per SAP signal band — with the same `country`/`kind`/`query` filters `search_firms` takes, so you can count a slice as easily as the whole. Use this instead of paging `search_firms` and tallying rows: the directory holds thousands of organisations, and reading them all to produce a table of counts costs hundreds of calls and megabytes of rows for numbers Postgres computes in one scan. Every bucket is a value the directory actually stores; `value: null` is a real bucket meaning the field is unknown for those rows, and it is served rather than hidden — a country table that silently drops the rows with no country adds up to less than the population and says nothing about it."
+        "description": "Answer a COUNTING question about the published firm directory in one call: how many organisations per country, per kind, per declared SAP module, or per SAP signal band — with the same `country`/`kind`/`module`/`query` filters `search_firms` takes, so you can count a slice as easily as the whole. Use this instead of paging `search_firms` and tallying rows: the directory holds thousands of organisations, and reading them all to produce a table of counts costs hundreds of calls and megabytes of rows for numbers Postgres computes in one scan. Every bucket is a value the directory actually stores; `value: null` is a real bucket meaning the field is unknown for those rows, and it is served rather than hidden — a country table that silently drops the rows with no country adds up to less than the population and says nothing about it."
       },
       {
         "name": "get_firm",
         "title": "Get one firm's published profile",
         "read_only": true,
-        "description": "Fetch one organisation from the published directory by its database slug (`rows[].slug` from search_firms, verbatim). Returns the same public fields plus `partnerships_declared`, the count of partnerships this directory records for the firm — 0 on ~94 % of rows, meaning none declared here, never that the firm has no partners. Does not return the paid firm-intelligence profile, contacts, or any person."
+        "description": "Fetch one organisation from the published directory by its database slug (`rows[].slug` from search_firms, verbatim). Returns the same public fields plus `partnerships_declared`, the count of partnerships this directory records for the firm — 0 on ~97 % of rows (re-measured 2026-08-14 on the published tranche: 96,8 %), meaning none declared here, never that the firm has no partners. Does not return the paid firm-intelligence profile, contacts, or any person."
       },
       {
         "name": "list_firm_kinds",
@@ -186,10 +234,16 @@
         "description": "Breakdown of the published firm directory by organisation kind, with a live row count per kind. Use this before search_firms to know what the population actually is instead of guessing."
       },
       {
+        "name": "list_freelance_platforms",
+        "title": "List the CV/profile platforms a consultant can sign up on",
+        "read_only": true,
+        "description": "The subset of the published directory where a consultant can CREATE A PROFILE — freelance marketplaces, job boards with candidate profiles, talent platforms and expert networks — each with its signup URL, an editorial confidence grade and the date it was assessed. This answers the entering-contractor's first practical question ('where do I register?') in one call; until 2026-08-16 the flag existed on ~106 published rows and no tool could list them. Everything here is also in search_firms — this tool adds the platform fields and the filter, never a wider population. `signup_url` is the platform's own page: it was verified on `assessed_at`, and a platform absent here is not proven to refuse signups — it is unassessed or unpublished."
+      },
+      {
         "name": "find_opportunities",
         "title": "Search the public SAP analytics contract radar",
         "read_only": true,
-        "description": "Search every SAP contract and permanent-role posting Analytics Legends publishes to an ANONYMOUS visitor — the same population a human browses on /opportunities/, where each posting has its own prerendered page. It merges the platform's TWO public legs, which are near-disjoint (measured 2026-07-30: 1 row in common): (a) the PROMOTED feed (`public.public_opportunities`) — general SAP work (FI/CO, SD, EWM, MDG, BTP, ABAP), all German cities, dated (posted_at is populated on 80/80 active rows since 2026-07-31), and it carries NO rate, contract_type, currency or country_code: those fields come back null on that leg, so no rate or contract term can be read off it; (b) the SITE RADAR (`/api/contracts-lean.json`) — these carry country, category, seniority, posted_at, `employment_type` and, on most of them, `expires_at`; they are the analytics-specific ones (SAC Planning, Datasphere Technical Lead, Business Data Cloud). READ `employment_type` BEFORE CALLING THIS A CONTRACT MARKET: the radar is mostly PERMANENT roles (measured 2026-08-10: 2,172 permanent, 176 freelance, 33 contract of 2,381 active rows), so an unfiltered page answers a freelance question with salaried jobs unless you filter. The argument of the same name does the filtering. TWO DIFFERENT RATE FIELDS, AND THEY MEAN DIFFERENT THINGS. `currency` / `daily_rate_min` / `daily_rate_max` are the posting's OWN advertised rate and are almost always null (measured 2026-08-10: 147, 19 and 20 rows of 2,381) — most listings publish no rate at all. `rate_band` is the platform's editorial benchmark for that posting's (seniority × product × region) cell, present on 1,421 of 2,381 rows, and it is what the posting's public page leads with. It is `rate_basis: \"panel_inferred\"` — Eursap n=312 plus the Analytics Legends operator panel, permanent rows restated as a TJM equivalent at ~220 billable days a year — NOT a rate this employer offered. Quote it as a band with its `basis`, `kind` and `source`, never as the posting's rate, and never average bands across postings: many rows share one cell. WHAT IS GATED IS A FIELD, NOT A ROW: on most radar rows `source_url` is null and `application_link` reads \"members_only\" — the verified link to the original listing is the paid Consultant-tier deliverable. Everything else about the posting is public, and `citation_url` is that posting's own page on analyticslegends.ai. Quote it. Report `_meta.tranche_row_count` as the published public population, never as the size of the market."
+        "description": "Search every SAP contract and permanent-role posting Analytics Legends publishes to an ANONYMOUS visitor — the same population a human browses on /opportunities/, where each posting has its own prerendered page. It merges the platform's TWO public legs, which are near-disjoint (measured 2026-07-30: 1 row in common): (a) the PROMOTED feed (`public.public_opportunities`) — general SAP work (FI/CO, SD, EWM, MDG, BTP, ABAP), all German cities, dated (posted_at is populated on EVERY active row of that leg — an invariant held since 2026-07-31, not a snapshot), and it carries NO rate, contract_type, currency or country_code: those fields come back null on that leg, so no rate or contract term can be read off it; (b) the SITE RADAR (`/api/contracts-lean.json`) — these carry country, category, seniority, posted_at, `employment_type` and, on most of them, `expires_at`; they are the analytics-specific ones (SAC Planning, Datasphere Technical Lead, Business Data Cloud). READ `employment_type` BEFORE CALLING THIS A CONTRACT MARKET: the radar is mostly PERMANENT roles, so an unfiltered page answers a freelance question with salaried jobs unless you filter. The argument of the same name does the filtering, and `_meta.tranche_total_row_count` on your own response is the live population — read the split from a filtered call, never from a figure quoted in this text. TWO DIFFERENT RATE FIELDS, AND THEY MEAN DIFFERENT THINGS. `currency` / `daily_rate_min` / `daily_rate_max` are the posting's OWN advertised rate and are almost always null — most listings publish no rate at all. `rate_band` is the platform's editorial benchmark for that posting's (seniority × product × region) cell, present on most rows, and it is what the posting's public page leads with. It is `rate_basis: \"panel_inferred\"` — Eursap n=312 plus the Analytics Legends operator panel, permanent rows restated as a TJM equivalent at ~220 billable days a year — NOT a rate this employer offered. Quote it as a band with its `basis`, `kind` and `source`, never as the posting's rate, and never average bands across postings: many rows share one cell. WHAT IS GATED IS A FIELD, NOT A ROW: on most radar rows `source_url` is null and `application_link` reads \"members_only\" — the verified link to the original listing is the paid Consultant-tier deliverable. Everything else about the posting is public, and `citation_url` is that posting's own page on analyticslegends.ai. Quote it. Report `_meta.tranche_row_count` as the published public population, never as the size of the market."
       },
       {
         "name": "search_news",
@@ -219,13 +273,25 @@
         "name": "get_day_rate_benchmark",
         "title": "Public SAP analytics day-rate aggregate",
         "read_only": true,
-        "description": "The PUBLIC day-rate aggregate for SAP analytics freelance work: min/max daily rate by country, specialisation and seniority, each row carrying its own currency, source, source date and confidence. This is the free aggregate published at analyticslegends.ai/api/market-rates.json, and it is SMALL — 11 rows on 2026-08-09, every one of them a secondary source (a published market study or a job-board scan), sample_size null on 8 of them. NOTHING IS HELD BACK BEHIND IT: there is no paid counterpart to this aggregate — public.rate_contributions, v_community_rate_aggregates and v_rate_index are empty tables (measured 2026-08-09) — so whatever percentile a source row happens to carry is served here, free, to everyone. The GB row carries a median, p10 and p90, and its own note says its min/max ARE the 25th and 75th percentiles. What is missing from this answer is missing from THIS aggregate; it is not a paid tier. THIS IS NOT THE ONLY RATE THE PLATFORM PUBLISHES, AND ON THE QUESTIONS THIS MARKET ASKS MOST IT IS THE THINNER ONE. `find_opportunities` returns a `rate_band` on 1,421 of the 2,381 live radar postings (measured 2026-08-10) — a panel-inferred P25–P75 band per (seniority × product × region) cell, Eursap n=312 plus the Analytics Legends operator panel, and it is what each posting's public page leads with. It prices exactly the cells this 11-row aggregate cannot: Senior Datasphere DACH on 386 German postings, Senior BDC DACH on 52, where `specialisation:\"bdc\"` here returns nothing. When this tool comes back empty for a country × product, say the AGGREGATE holds no row and go read the radar band — do not report that the platform cannot price it. The two are different instruments: this one is a published market study, that one is an editorial benchmark attached to a live posting. Read `_meta.available_countries` / `available_specialisations` / `available_seniorities` — they are computed from the aggregate on every call — before concluding that a rate is unpublished, and quote each row with its own currency, its confidence and its source date."
+        "description": "The PUBLIC day-rate aggregate for SAP analytics freelance work: min/max daily rate by country, specialisation and seniority, each row carrying its own currency, source, source date and confidence. This is the free aggregate published at analyticslegends.ai/api/market-rates.json, and it is SMALL — 11 rows on 2026-08-09, every one of them a secondary source (a published market study or a job-board scan), sample_size null on 8 of them. NOTHING IS HELD BACK BEHIND IT: there is no paid counterpart to this aggregate. The community-contribution path exists (public.rate_contributions) but publishes nothing yet — v_community_rate_aggregates and v_rate_index are still empty, because a contributed rate only surfaces once a cell holds enough submissions to be reported without identifying anyone. So whatever percentile a source row happens to carry is served here, free, to everyone. The GB row carries a median, p10 and p90, and its own note says its min/max ARE the 25th and 75th percentiles. What is missing from this answer is missing from THIS aggregate; it is not a paid tier. THIS IS NOT THE ONLY RATE THE PLATFORM PUBLISHES, AND ON THE QUESTIONS THIS MARKET ASKS MOST IT IS THE THINNER ONE. `find_opportunities` returns a `rate_band` on most live radar postings — a panel-inferred P25–P75 band per (seniority × product × region) cell, Eursap n=312 plus the Analytics Legends operator panel, and it is what each posting's public page leads with. It prices exactly the cells this small aggregate cannot — Senior Datasphere DACH, Senior BDC DACH — where `specialisation:\"bdc\"` here returns nothing. When this tool comes back empty for a country × product, say the AGGREGATE holds no row and go read the radar band — do not report that the platform cannot price it. The two are different instruments: this one is a published market study, that one is an editorial benchmark attached to a live posting. Read `_meta.available_countries` / `available_specialisations` / `available_seniorities` — they are computed from the aggregate on every call — before concluding that a rate is unpublished, and quote each row with its own currency, its confidence and its source date."
       },
       {
         "name": "list_sap_modules",
         "title": "SAP analytics module taxonomy",
         "read_only": true,
         "description": "The canonical SAP module/product taxonomy Analytics Legends classifies against (codes and EN/FR labels by category). Use it to normalise a user's loose product wording — 'SAC', 'Analytics Cloud', 'Datasphere' — onto the codes the other tools filter on."
+      },
+      {
+        "name": "find_academy_modules",
+        "title": "Search the Academy training catalogue",
+        "read_only": true,
+        "description": "Search the Analytics Legends Academy — the 303 written training modules on SAP Datasphere, Business Data Cloud, SAP Analytics Cloud, BW/4HANA and Databricks — by track, level and free text. Returns the catalogue entry: id, slug, EN/FR title, track, level, duration in minutes, tags and the editor's summary. DO NOT CONFUSE IT WITH `list_sap_modules`, which serves a different population under the same word: that one is the 40-row PRODUCT taxonomy (codes such as SAC, DATASPHERE) used to normalise product wording. This one is the course catalogue. CATALOGUE ONLY — the module BODY is subscriber content, served by `get_academy_module` on this same endpoint with a subscriber key (Consultant tier or above), which is the same door the €29.90 Consultant Pass opens on the site. `status` and `is_preview` are SERVED, never filtered on: they are the two flags the platform marks free access with, they do not coincide (measured 2026-08-16: 38 rows `status='available'`, 56 rows `is_preview`), and you decide which one your answer needs. PAGINATED: pass `_meta.next_cursor` back as `cursor` with the same filters until it is null. Read `_meta.available_tracks` and `_meta.available_levels` — both counted on the served population at call time — before assuming a facet value exists."
+      },
+      {
+        "name": "query_knowledge_graph",
+        "title": "Traverse the learning knowledge graph",
+        "read_only": true,
+        "description": "The RELATIONS between the platform's teaching objects — which Academy module teaches which concept, which study covers which module, what a concept relates to. THIS IS THE ONLY TOOL ON THIS SERVER THAT SERVES EDGES; the other sixteen serve rows. Ask it what connects to what, not what exists. SCOPE, AND IT IS NARROWER THAN 'the knowledge graph': it carries four node types — `concept`, `module`, `study`, `vendor` — and every edge whose BOTH endpoints are one of them. The whole graph holds eleven node types; the seven it does not carry are each either served by their own tool or named as not served at all, and `_meta.excluded_node_types` says which per type (consultant data is served at NO tier), so a missing type is a documented boundary and never a silent gap. Call it with `node_id` (e.g. `module:M178`, `concept:C001`, `study:ai-impact-2026-EN`) to walk one node's neighbourhood; with `node_type` and/or `query` to find a node id first. `edge_type` and `direction` narrow a walk. Read `_meta.available_edge_types` — computed from the served projection on every call — before assuming an edge type exists."
       },
       {
         "name": "get_concept_card",
@@ -242,11 +308,18 @@
         "description": "Read one Analytics Legends study BODY — the paid text behind list_studies' metadata. Requires a subscriber API key, Consultant tier or above. Bodies run to 38k words and exceed the 256 KiB response ceiling, so this tool serves STRUCTURE first: called without `section` it returns the section list and the introduction; pass `section` (a heading from that list, matched case-insensitively) to read one section. Find slugs and languages with list_studies."
       },
       {
+        "name": "get_academy_module",
+        "title": "Read an Academy module (Consultant tier)",
+        "read_only": true,
+        "requires": "subscriber API key — consultant tier or above",
+        "description": "Read one Academy training module in full — body, learning objectives and summary, EN and FR — the written course corpus the €29.90 Consultant Pass sells. Requires a subscriber API key (Authorization: Bearer alk_…), Consultant tier or above; without one this tool refuses and `find_academy_modules` keeps serving the catalogue. Takes the module id (`M001`) or its slug (`datasphere-foundations`), both matched case-insensitively — `find_academy_modules` returns both on every row, and `query_knowledge_graph` returns the same ids as `module:M001` node ids, so a graph walk now ENDS somewhere. Unlike `get_study`, the whole module is served in one call: the longest body measured is 17 865 characters, two orders of magnitude under the response ceiling, so sectioning it would cost the caller context without protecting anything."
+      },
+      {
         "name": "find_sap_clients",
         "title": "Search the SAP end-customer corpus (Legend tier)",
         "read_only": true,
         "requires": "subscriber API key — legend tier or above",
-        "description": "Search the SAP END-CUSTOMER corpus — the companies that RUN SAP, not the firms that sell services (those are search_firms). This is the paid Legend+ dataset locked away from the public surface on 2026-07-08; it requires a subscriber API key, Legend tier or above. Verification status is SERVED, never silently filtered: `sap_client_verification_status` and `status` are columns on every row ('verified' on ~550 of ~21k rows), and you decide what standard of proof your answer needs."
+        "description": "Search the SAP END-CUSTOMER corpus — the companies that RUN SAP, not the firms that sell services (those are search_firms). This is the paid Legend+ dataset locked away from the public surface on 2026-07-08; it requires a subscriber API key, Legend tier or above. Verification status is SERVED, never silently filtered: `sap_client_verification_status` and `status` are columns on every row ('verified' on ~550 of ~21k rows), and you decide what standard of proof your answer needs. `product` filters on the detected-adoption flags every profile already carries (the `uses_*` columns get_sap_client_profile serves): it keeps only rows where that product was DETECTED. A row it drops is 'not detected by our detection pass', never 'does not use it' — detection is a positive signal with no negative counterpart."
       },
       {
         "name": "get_sap_client_profile",
@@ -288,6 +361,14 @@
       {
         "name": "explain_sap_analytics_term",
         "description": "Explain one SAP analytics term from the Analytics Legends encyclopaedia and cite the canonical URL."
+      },
+      {
+        "name": "shortlist_firms_for_requirement",
+        "description": "Build a sourced shortlist of service firms for one requirement — country plus SAP module — walking the population before naming anyone, and saying what each number's population is."
+      },
+      {
+        "name": "price_my_mission",
+        "description": "Assemble a day-rate answer for one (country × specialisation × seniority) cell from the platform's TWO rate instruments, kept apart and both cited."
       }
     ]
   },
@@ -306,8 +387,8 @@
   "canonical_manifest": "https://analyticslegends.ai/.well-known/agent.json",
   "documentation_url": "https://analyticslegends.ai/llms.txt",
   "generated_by": "scripts/sync-mcp-manifest.mjs (mcp_version · server_info · capabilities · tool_count · status · remotes) + scripts/sync-agent-manifests.mjs (description counts) + scripts/sync-app-version.mjs (version)",
-  "generated_at": "2026-08-10",
-  "updated_at": "2026-08-10",
+  "generated_at": "2026-08-18",
+  "updated_at": "2026-08-18",
   "remotes": [
     {
       "type": "streamable-http",

@@ -29,7 +29,23 @@ The public tools need no credential.
 
 ```bash
 claude mcp add --transport http analytics-legends https://analyticslegends.ai/mcp
+# with a subscriber key, to open the six gated tools:
+claude mcp add --transport http analytics-legends https://analyticslegends.ai/mcp \
+  --header "Authorization: Bearer alk_…"
 ```
+</details>
+
+<details>
+<summary><b>Claude web, Desktop and mobile</b> (custom connector)</summary>
+
+Add a custom connector pointing at `https://analyticslegends.ai/mcp`. The public tranche
+answers immediately, with no credential.
+
+To open the paid tranche, use the connector's **request-header authentication** and set
+`Authorization` to `Bearer alk_…`. The credential is entered once, by whoever adds the
+connector, and is shared by that workspace — one key, one daily quota. There is no OAuth
+consent flow to walk: this server's unit of access is a personal API key minted on an
+analyticslegends.ai account, not a delegated identity.
 </details>
 
 <details>
@@ -48,7 +64,7 @@ claude mcp add --transport http analytics-legends https://analyticslegends.ai/mc
 </details>
 
 <details>
-<summary><b>With a subscriber key</b> (opens the five gated tools)</summary>
+<summary><b>With a subscriber key</b> (opens the six gated tools)</summary>
 
 ```json
 {
@@ -70,10 +86,11 @@ surface — this README is a copy, and a copy can drift.
 
 ---
 
-## The 16 tools
+## The 20 tools
 
-**Eleven are public and unauthenticated.** Five need a subscriber key; they are
+**Fourteen are public and unauthenticated.** Six need a subscriber key; they are
 **listed and refuse by name**, never hidden — an agent can see what it is missing.
+Three open at Consultant, three at Legend, and the MCP Pass opens all six.
 
 | Tool | Answers |
 |---|---|
@@ -88,8 +105,12 @@ surface — this README is a copy, and a copy can drift.
 | `list_studies` | The deep-research study editions and their metadata |
 | `get_day_rate_benchmark` | The public day-rate aggregate by country, stack, seniority |
 | `list_sap_modules` | The canonical SAP module/product taxonomy |
+| `list_freelance_platforms` | The CV/profile platforms a consultant can sign up on |
+| `find_academy_modules` | The Academy training catalogue, searchable by module |
+| `query_knowledge_graph` | A traversal of the learning knowledge graph |
 | 🔒 `get_concept_card` | The full encyclopaedia card — body, key points, cheat sheet |
 | 🔒 `get_study` | One study **body** |
+| 🔒 `get_academy_module` | One Academy module, in full |
 | 🔒 `find_sap_clients` | The SAP end-customer corpus — who *runs* SAP |
 | 🔒 `get_sap_client_profile` | One end-customer's SAP footprint and analytics estate |
 | 🔒 `get_firm_intel` | A firm's practice size, partner level, delivery flags |
@@ -126,9 +147,9 @@ Retrieval with attribution is permitted. **Training-data use is not.**
 
 ## Subscriptions
 
-The five gated tools open with an
+The six gated tools open with an
 [analyticslegends.ai](https://analyticslegends.ai/pricing/) subscription (Consultant or
-above), or with the **MCP Pass** (€39/month) — the machine-access subscription: this
+above), or with the **MCP Pass** (€39.90/month) — the machine-access subscription: this
 server's entire paid tranche, no web subscriber screens.
 
 ---
@@ -149,6 +170,5 @@ Published in the official MCP registry as **`ai.analyticslegends/sap-analytics`*
 
 ## Licence
 
-[MIT](./LICENSE) for the contents of this repository — see [NOTICE](./NOTICE.md) for
-the scope: the licence grants no right over the data served by the endpoint, which
-stays under the platform's own terms.
+[MIT](./LICENSE) for the contents of this repository. The licence does not grant rights
+over the data served by the endpoint, which stays under the platform's terms.
